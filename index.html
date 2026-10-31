@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101b1c">
   <meta name="description" content="Read resistor color bands with your camera, then check the calculated resistance.">
-  <title>Band Reader — Resistor Color Decoder</title>
+  <title>Band Reader v2 — Resistor Color Decoder</title>
   <style>
     :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;color:#eaf5f0;background:#0d1718}
     *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 82% 8%,#244342 0,transparent 34%),#0d1718;min-height:100vh}button,select{font:inherit}button{cursor:pointer}button:disabled{opacity:.48;cursor:not-allowed}
@@ -22,8 +22,8 @@
     <div class="grid">
       <section class="card" aria-label="Camera scanner"><div class="card-head"><h2>Scan a resistor</h2><span class="pill" id="modePill">Ready</span></div>
         <div class="view" id="view"><video id="video" autoplay playsinline muted aria-label="Live camera"></video><canvas id="canvas" aria-label="Captured resistor image"></canvas><div class="guide"></div><div class="scanline"></div><div class="empty" id="empty"><svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden="true"><rect x="4" y="14" width="44" height="27" rx="5" stroke="currentColor" stroke-width="2"/><circle cx="26" cy="27.5" r="8" stroke="currentColor" stroke-width="2"/><path d="M14 14l3-5h17l3 5" stroke="currentColor" stroke-width="2"/></svg><strong>Start with a clear photo</strong>Hold the resistor horizontally in the guide with even, bright light.</div></div>
-        <div class="actions"><button class="btn primary" id="cameraBtn">Start camera</button><button class="btn" id="captureBtn" disabled>Capture &amp; scan</button><button class="btn" id="uploadBtn">Upload photo</button><input id="file" type="file" accept="image/*" capture="environment"></div>
-        <div class="help"><span class="status" id="status" role="status">Camera access requires HTTPS or localhost. Photos stay on your device.</span><br>After capture, tap the center of a band to add or correct it. Keep the resistor horizontal for automatic scanning.</div>
+        <div class="actions"><button class="btn primary" id="cameraBtn">Start camera</button><button class="btn" id="captureBtn" disabled>Capture &amp; scan</button><button class="btn" id="uploadBtn">Upload photo</button><button class="btn" id="axisBtn">Mark resistor ends</button><label>Tap to set <select id="targetBand" aria-label="Band to sample"></select></label><input id="file" type="file" accept="image/*" capture="environment"></div>
+        <div class="help"><span class="status" id="status" role="status">Camera access requires HTTPS or localhost. Photos stay on your device.</span><br>After capture, use Mark resistor ends and tap both ends of the colored body (not the wires). This works at any angle. To correct one band, select its number and tap its center.</div>
       </section>
       <section class="card" aria-label="Resistance result"><div class="card-head"><h2>Resistance</h2><span class="pill">4 or 5 bands</span></div><div class="side-body">
         <div class="result"><small>Calculated value</small><div class="value" id="value">— Ω</div><div class="sub" id="detail">Choose band colors to begin</div><div class="swatches" id="swatches" aria-label="Selected colors"></div></div>
@@ -32,7 +32,7 @@
         <p class="note">For 4 bands: 2 digits, multiplier, tolerance. For 5 bands: 3 digits, multiplier, tolerance. The separated band is usually the tolerance band. Gold and silver often need manual correction.</p>
       </div></section>
     </div>
-    <section class="steps" aria-label="How to use"><div class="step"><b>01 / Frame</b><p>Hold the resistor straight across the guide. Fill most of the width and avoid shadows or glare.</p></div><div class="step"><b>02 / Scan</b><p>Capture a frame. The app samples a thin strip through the middle to propose band colors.</p></div><div class="step"><b>03 / Verify</b><p>Check each color and the direction. Tap bands in the photo or use the menus to fix a result.</p></div></section>
+    <section class="steps" aria-label="How to use"><div class="step"><b>01 / Frame</b><p>Hold the resistor straight across the guide. Fill most of the width and avoid shadows or glare.</p></div><div class="step"><b>02 / Scan</b><p>Capture a frame. Mark the two ends of the resistor body. The reader samples across the body and separates bands from the base color.</p></div><div class="step"><b>03 / Verify</b><p>Check each color and the direction. Tap bands in the photo or use the menus to fix a result.</p></div></section>
     <div class="footer">Runs entirely in your browser. No image is uploaded or stored.</div>
   </main>
   <script>
@@ -40,22 +40,89 @@
     const DIGITS=['black','brown','red','orange','yellow','green','blue','violet','gray','white'];
     const MULTS=[...DIGITS,'gold','silver'];const TOLS=['brown','red','green','blue','violet','gray','gold','silver'];
     const TOLVAL={brown:1,red:2,green:.5,blue:.25,violet:.1,gray:.05,gold:5,silver:10};
-    const $=id=>document.getElementById(id);let count=4,bands=['brown','black','red','gold'],stream=null,imageReady=false;
+    const $=id=>document.getElementById(id);let count=4,bands=Array(4).fill(''),stream=null,imageReady=false;
     const setStatus=s=>{$('status').textContent=s};
     function formatOhms(n){const units=[['GΩ',1e9],['MΩ',1e6],['kΩ',1e3],['Ω',1]];const [u,d]=units.find(x=>n>=x[1])||units[3];return `${Number((n/d).toPrecision(4)).toLocaleString()} ${u}`}
-    function recalc(){const digitCount=count-2;const valid=bands.slice(0,digitCount).every(x=>DIGITS.includes(x))&&MULTS.includes(bands[digitCount])&&TOLS.includes(bands[count-1]);const value=valid?Number(bands.slice(0,digitCount).map(x=>DIGITS.indexOf(x)).join(''))*10**(DIGITS.indexOf(bands[digitCount])>=0?DIGITS.indexOf(bands[digitCount])-0:bands[digitCount]==='gold'?-1:-2):null;$('value').textContent=valid?formatOhms(value):'— Ω';$('detail').textContent=valid?`±${TOLVAL[bands[count-1]]}% tolerance · ${bands.slice(0,count).join(' / ')}`:'Check the selected band colors';$('swatches').innerHTML=bands.slice(0,count).map(c=>`<i class="swatch" title="${c}" style="background:${COLORS[c]}"></i>`).join('');}
-    function render(){const names=count===4?['1st digit','2nd digit','Multiplier','Tolerance']:['1st digit','2nd digit','3rd digit','Multiplier','Tolerance'];$('bandInputs').innerHTML=names.map((name,i)=>{const choices=i<count-2?DIGITS:i===count-2?MULTS:TOLS;return `<div class="band-row"><span>${i+1}</span><select aria-label="${name}" data-index="${i}">${choices.map(c=>`<option value="${c}" ${c===bands[i]?'selected':''}>${name}: ${c[0].toUpperCase()+c.slice(1)}</option>`).join('')}</select></div>`}).join('');$('bandInputs').querySelectorAll('select').forEach(s=>s.onchange=()=>{bands[+s.dataset.index]=s.value;recalc()});$('four').classList.toggle('active',count===4);$('five').classList.toggle('active',count===5);$('four').setAttribute('aria-pressed',count===4);$('five').setAttribute('aria-pressed',count===5);recalc()}
-    $('four').onclick=()=>{count=4;bands=['brown','black','red','gold'];render()};$('five').onclick=()=>{count=5;bands=['brown','black','black','red','gold'];render()};$('reverseBtn').onclick=()=>{bands=bands.slice(0,count).reverse();render();setStatus('Order reversed. Check the tolerance band at the right.')};$('clearBtn').onclick=()=>{bands=count===4?['brown','black','red','gold']:['brown','black','black','red','gold'];render();setStatus('Colors reset.')};
+    function recalc(){const digitCount=count-2;const valid=bands.slice(0,digitCount).every(x=>DIGITS.includes(x))&&MULTS.includes(bands[digitCount])&&TOLS.includes(bands[count-1]);const value=valid?Number(bands.slice(0,digitCount).map(x=>DIGITS.indexOf(x)).join(''))*10**(DIGITS.indexOf(bands[digitCount])>=0?DIGITS.indexOf(bands[digitCount])-0:bands[digitCount]==='gold'?-1:-2):null;$('value').textContent=valid?formatOhms(value):'— Ω';$('detail').textContent=valid?`±${TOLVAL[bands[count-1]]}% tolerance · ${bands.slice(0,count).join(' / ')}`:'Check the selected band colors';$('swatches').innerHTML=bands.slice(0,count).map(c=>`<i class="swatch" title="${c||'Unknown'}" style="background:${COLORS[c]||'#243b35'}"></i>`).join('');}
+    function render(){$('targetBand').innerHTML=Array.from({length:count},(_,i)=>`<option value="${i}">Band ${i+1}</option>`).join('');const names=count===4?['1st digit','2nd digit','Multiplier','Tolerance']:['1st digit','2nd digit','3rd digit','Multiplier','Tolerance'];$('bandInputs').innerHTML=names.map((name,i)=>{const choices=i<count-2?DIGITS:i===count-2?MULTS:TOLS;return `<div class="band-row"><span>${i+1}</span><select aria-label="${name}" data-index="${i}"><option value="">Choose color</option>${choices.map(c=>`<option value="${c}" ${c===bands[i]?'selected':''}>${name}: ${c[0].toUpperCase()+c.slice(1)}</option>`).join('')}</select></div>`}).join('');$('bandInputs').querySelectorAll('select').forEach(s=>s.onchange=()=>{bands[+s.dataset.index]=s.value;recalc()});$('four').classList.toggle('active',count===4);$('five').classList.toggle('active',count===5);$('four').setAttribute('aria-pressed',count===4);$('five').setAttribute('aria-pressed',count===5);recalc()}
+    $('four').onclick=()=>{count=4;bands=Array(4).fill('');render();if(imageReady)scan()};$('five').onclick=()=>{count=5;bands=Array(5).fill('');render();if(imageReady)scan()};$('reverseBtn').onclick=()=>{bands=bands.slice(0,count).reverse();render();setStatus('Order reversed. Check the tolerance band at the right.')};$('clearBtn').onclick=()=>{bands=Array(count).fill('');render();setStatus('Colors reset.')};
     async function stopCamera(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null} $('view').classList.remove('live');$('captureBtn').disabled=true;$('cameraBtn').textContent='Start camera'}
     $('cameraBtn').onclick=async()=>{if(stream){await stopCamera();return}if(!navigator.mediaDevices?.getUserMedia){setStatus('Camera unavailable here. Use HTTPS or localhost, or upload a photo.');return}try{stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}});$('video').srcObject=stream;await $('video').play();$('view').classList.add('live');$('view').classList.remove('has-image');$('captureBtn').disabled=false;$('cameraBtn').textContent='Stop camera';$('modePill').textContent='Live';setStatus('Center the resistor horizontally, then capture.')}catch(e){setStatus(`Camera could not start: ${e.name==='NotAllowedError'?'permission denied':e.message}. Try Upload photo.`)}};
-    function drawSource(source,w,h){const canvas=$('canvas');canvas.width=w;canvas.height=h;canvas.getContext('2d',{willReadFrequently:true}).drawImage(source,0,0,w,h);$('view').classList.add('has-image');$('modePill').textContent='Captured';imageReady=true;scan()}
+    function drawSource(source,w,h){axis=[];bands=Array(count).fill('');const canvas=$('canvas');canvas.width=w;canvas.height=h;canvas.getContext('2d',{willReadFrequently:true}).drawImage(source,0,0,w,h);$('view').classList.add('has-image');$('modePill').textContent='Captured';imageReady=true;raw=canvas.getContext('2d').getImageData(0,0,w,h);render();scan()}
     $('captureBtn').onclick=()=>{const v=$('video');if(!v.videoWidth)return;drawSource(v,v.videoWidth,v.videoHeight);stopCamera()};
     $('uploadBtn').onclick=()=>$('file').click();$('file').onchange=async e=>{const file=e.target.files[0];if(!file)return;const url=URL.createObjectURL(file),img=new Image();img.onload=()=>{const scale=Math.min(1,1600/Math.max(img.width,img.height));drawSource(img,Math.round(img.width*scale),Math.round(img.height*scale));URL.revokeObjectURL(url);stopCamera()};img.onerror=()=>setStatus('Could not open that image.');img.src=url;e.target.value=''};
     function rgbToHsv(r,g,b){r/=255;g/=255;b/=255;const max=Math.max(r,g,b),min=Math.min(r,g,b),d=max-min;let h=0;if(d){if(max===r)h=((g-b)/d)%6;else if(max===g)h=(b-r)/d+2;else h=(r-g)/d+4;h=(h*60+360)%360}return [h,max?d/max:0,max]}
-    function classify(r,g,b){const [h,s,v]=rgbToHsv(r,g,b);if(v<.17)return 'black';if(s<.16){if(v>.79)return 'white';if(v>.60)return 'silver';return 'gray'}if(h<18||h>=345){return v<.43?'brown':'red'}if(h<43){if(v<.47)return 'brown';return s<.55?'gold':'orange'}if(h<68)return s<.48?'gold':'yellow';if(h<165)return 'green';if(h<250)return 'blue';if(h<325)return 'violet';return 'red'}
-    function pixelAt(data,w,h,x,y){let r=0,g=0,b=0,n=0;for(let dy=-3;dy<=3;dy++){for(let dx=-2;dx<=2;dx++){const xx=Math.max(0,Math.min(w-1,x+dx)),yy=Math.max(0,Math.min(h-1,y+dy)),i=(yy*w+xx)*4;r+=data[i];g+=data[i+1];b+=data[i+2];n++}}return [r/n,g/n,b/n]}
-    function scan(){const c=$('canvas'),w=c.width,h=c.height,ctx=c.getContext('2d',{willReadFrequently:true}),data=ctx.getImageData(0,0,w,h).data;const y=Math.round(h/2),from=Math.round(w*.18),to=Math.round(w*.82),step=Math.max(2,Math.round(w/450));let runs=[],last=null;for(let x=from;x<to;x+=step){let color=classify(...pixelAt(data,w,h,x,y));if(color!==last){runs.push({color,start:x,end:x});last=color}else runs[runs.length-1].end=x}const width=to-from;let candidates=runs.filter(r=>r.end-r.start>width*.012&&r.end-r.start<width*.22&& !['white','silver','gray'].includes(r.color));candidates=candidates.filter(r=>r.start>from+width*.04&&r.end<to-width*.04);let merged=[];for(const r of candidates){const prev=merged.at(-1);if(prev&&prev.color===r.color&&r.start-prev.end<width*.025)prev.end=r.end;else merged.push({...r})}if(merged.length>=4){const selected=merged.slice(0,count);let proposed=selected.map(r=>r.color);const last=proposed.length-1;if(!TOLS.includes(proposed[last]))proposed[last]='gold';if(proposed.slice(0,count-2).every(c=>DIGITS.includes(c))&&MULTS.includes(proposed[count-2])){bands=proposed;render();setStatus(`Proposed ${count} bands. Verify each color and direction.`);return}}setStatus('Auto scan could not isolate every band. Tap a band in the image, then choose its position below.');}
-    $('canvas').addEventListener('click',e=>{if(!imageReady)return;const rect=e.target.getBoundingClientRect(),c=e.target,scale=Math.min(rect.width/c.width,rect.height/c.height),drawWidth=c.width*scale,drawHeight=c.height*scale,x=Math.round((e.clientX-rect.left-(rect.width-drawWidth)/2)/scale),y=Math.round((e.clientY-rect.top-(rect.height-drawHeight)/2)/scale);if(x<0||x>=c.width||y<0||y>=c.height)return;const data=c.getContext('2d',{willReadFrequently:true}).getImageData(0,0,c.width,c.height).data,color=classify(...pixelAt(data,c.width,c.height,x,y));const pos=Number(prompt(`Detected ${color}. Assign to band number (1–${count})?`,1));if(pos>=1&&pos<=count){bands[pos-1]=color;render();setStatus(`Band ${pos} set to ${color}. Check the menu if lighting changed its appearance.`)}});
+    let raw=null,axis=[],marking=false;
+    const median=a=>{const b=[...a].sort((x,y)=>x-y);return b[Math.floor(b.length/2)]};
+    function classify(r,g,b){
+      const [h,s,v]=rgbToHsv(r,g,b);
+      if(v<.18)return 'black';
+      if(s<.18)return v>.82?'white':'gray';
+      if(h<15||h>345)return v<.36?'brown':'red';
+      if(h<46)return v<.62?'brown':'orange';
+      if(h<70)return 'yellow';
+      if(h<170)return 'green';
+      if(h<255)return 'blue';
+      return 'violet';
+    }
+    function pixelAt(data,w,h,x,y,radius=2){
+      const samples=[[],[],[]];
+      for(let dy=-radius;dy<=radius;dy++)for(let dx=-radius;dx<=radius;dx++){
+        const i=(Math.max(0,Math.min(h-1,Math.round(y+dy)))*w+Math.max(0,Math.min(w-1,Math.round(x+dx))))*4;
+        for(let k=0;k<3;k++)samples[k].push(data[i+k]);
+      }
+      return samples.map(median);
+    }
+    // Separate body and bands using robust color clusters along the chosen axis.
+    // Perpendicular median samples suppress isolated highlights and sensor noise.
+    function detect(data,w,h,start,end,n){
+      const dx=end.x-start.x,dy=end.y-start.y,len=Math.hypot(dx,dy);
+      if(len<40)return [];
+      const size=Math.min(500,Math.round(len)),nx=-dy/len,ny=dx/len;
+      const profile=Array.from({length:size},(_,i)=>{
+        const t=i/(size-1),samples=[];
+        for(let j=-3;j<=3;j++)samples.push(pixelAt(data,w,h,start.x+dx*t+nx*j*len*.006,start.y+dy*t+ny*j*len*.006,1));
+        return [0,1,2].map(k=>median(samples.map(c=>c[k])));
+      });
+      const distance=(a,b)=>Math.sqrt(a.reduce((v,c,k)=>v+(c-b[k])**2,0));
+      const clusters=[];
+      for(const c of profile){let near=clusters.find(x=>distance(x.color,c)<32);if(near)near.members.push(c);else clusters.push({color:c,members:[c]})}
+      clusters.sort((a,b)=>b.members.length-a.members.length);
+      if(!clusters.length)return [];
+      const body=[0,1,2].map(k=>median(clusters[0].members.map(c=>c[k])));
+      let mask=profile.map(c=>distance(c,body)>48);
+      mask=mask.map((v,i)=>{const a=mask.slice(Math.max(0,i-2),Math.min(size,i+3));return a.filter(Boolean).length>a.length/2});
+      const runs=[];let run=null;
+      mask.forEach((on,i)=>{if(on){if(!run)run={start:i,end:i};run.end=i}else if(run){runs.push(run);run=null}});if(run)runs.push(run);
+      const bands=runs.filter(r=>r.start>size*.025&&r.end<size*.975&&r.end-r.start>=size*.012&&r.end-r.start<size*.19);
+      if(bands.length!==n)return [];
+      return bands.map(r=>{const pad=Math.max(1,Math.floor((r.end-r.start)*.2)),samples=profile.slice(r.start+pad,r.end-pad+1);const rgb=[0,1,2].map(k=>median(samples.map(c=>c[k])));return {color:classify(...rgb),rgb,t:(r.start+r.end)/2/(size-1)}});
+    }
+    function paint(points=[]){const c=$('canvas'),ctx=c.getContext('2d');ctx.putImageData(raw,0,0);ctx.lineWidth=Math.max(2,c.width/500);ctx.strokeStyle='#6bffb3';
+      if(axis.length){ctx.beginPath();ctx.moveTo(axis[0].x,axis[0].y);if(axis[1])ctx.lineTo(axis[1].x,axis[1].y);ctx.stroke()}
+      points.forEach((p,i)=>{ctx.beginPath();ctx.arc(p.x,p.y,Math.max(7,c.width/70),0,Math.PI*2);ctx.stroke();ctx.fillStyle='#ffffff';ctx.font=`bold ${Math.max(14,c.width/55)}px sans-serif`;ctx.fillText(String(i+1),p.x,p.y-Math.max(12,c.width/60))});
+    }
+    function scan(){if(!raw)return;bands=Array(count).fill('');const w=raw.width,h=raw.height;
+      const start=axis[0]||{x:w*.16,y:h*.5},end=axis[1]||{x:w*.84,y:h*.5};
+      const found=detect(raw.data,w,h,start,end,count);
+      if(found.length!==count){render();paint(axis);setStatus('No reliable band sequence found. Mark the two ends of the resistor body, or tap individual bands.');return}
+      bands=found.map(x=>x.color);
+      // Metallic appearance cannot be established from RGB alone. Never invent tolerance.
+      const legal=a=>a.slice(0,count-2).every(c=>DIGITS.includes(c))&&MULTS.includes(a[count-2])&&TOLS.includes(a[count-1]);
+      if(!legal(bands)&&legal([...bands].reverse())){bands.reverse();found.reverse()}
+      if(!TOLS.includes(bands[count-1]))bands[count-1]='';
+      render();paint(found.map(p=>({x:start.x+(end.x-start.x)*p.t,y:start.y+(end.y-start.y)*p.t})));
+      setStatus('Band positions detected. Check colors and reading direction. Select gold or silver manually for metallic bands.');
+    }
+    $('axisBtn').onclick=()=>{if(!raw){setStatus('Capture or upload an image first.');return}marking=true;axis=[];paint();setStatus('Tap one end of the resistor body, then the other. Exclude the wires.');};
+    $('canvas').addEventListener('click',e=>{
+      if(!imageReady||!raw)return;const c=e.target,rect=c.getBoundingClientRect(),scale=Math.min(rect.width/c.width,rect.height/c.height);
+      const x=(e.clientX-rect.left-(rect.width-c.width*scale)/2)/scale,y=(e.clientY-rect.top-(rect.height-c.height*scale)/2)/scale;
+      if(x<0||x>=c.width||y<0||y>=c.height)return;
+      if(marking){axis.push({x,y});paint(axis);if(axis.length===2){marking=false;scan()}else setStatus('Now tap the other end of the colored body.');return}
+      const pos=Number($('targetBand').value),color=classify(...pixelAt(raw.data,raw.width,raw.height,x,y,3));
+      bands[pos]=color;render();$('targetBand').value=String(Math.min(count-1,pos+1));paint([{x,y}]);setStatus(`Band ${pos+1}: ${color}. Next tap sets band ${Math.min(count,pos+2)}. Metallic bands need manual selection.`);
+    });
     render();
   </script>
 </body>
